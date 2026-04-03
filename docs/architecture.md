@@ -1,145 +1,86 @@
 # Architecture
 
-## Overview
+WatchStreak is a full-stack monorepo split into a Next.js frontend, a FastAPI backend, and shared packages — all orchestrated with pnpm workspaces and Turborepo.
+
+## System Overview
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                           Monorepo                                    │
-│                                                                      │
-│  ┌─────────────────┐           ┌──────────────────────────────────┐  │
-│  │   apps/web      │           │          apps/api                │  │
-│  │                 │  HTTP/JSON│                                  │  │
-│  │  Next.js 16     │◄─────────►│  FastAPI + Python 3.11           │  │
-│  │  React 19       │           │  SQLAlchemy + Alembic            │  │
-│  │  Tailwind 4     │           │  ChromaDB (vector memory)        │  │
-│  │  App Router     │           │  Pydantic v2                     │  │
-│  └────────┬────────┘           └──────────────┬───────────────────┘  │
-│           │                                   │                      │
-│           │ imports                           │ exports              │
-│           ▼                                   ▼                      │
-│  ┌────────────────────┐      ┌───────────────────────────────────┐   │
-│  │ packages/ui        │      │  packages/shared-types            │   │
-│  │                    │      │                                   │   │
-│  │ React components   │      │  openapi.json (source of truth)   │   │
-│  │ Shared across apps │      │  → TypeScript interfaces          │   │
-│  └────────────────────┘      │  → Zod validation schemas         │   │
-│                              └───────────────────────────────────┘   │
-│                                                                      │
-│  ┌───────────────────────────────────────────────────────────────┐   │
-│  │  skills/  — Executable scripts for agents & humans            │   │
-│  └───────────────────────────────────────────────────────────────┘   │
-└──────────────────────────────────────────────────────────────────────┘
+Browser
+  │
+  ▼
+Next.js (port 3000)
+  │  src/lib/api.ts  ──  typed fetch() wrapper
+  │
+  ▼  HTTP / JSON
+FastAPI (port 8000)
+  │
+  ├──► YouTube Data API v3 (httpx)   ──  playlist import
+  │
+  └──► SQLite (dev) / PostgreSQL (prod)  ──  course, video, log storage
 ```
 
-## Repository Structure
+## Monorepo Layout
 
 ```
 /
-├── AGENTS.md                  # AI agent instructions (root level)
-├── CLAUDE.md                  # Multi-agent coordination rules
-├── package.json               # Root workspace config
-├── pnpm-workspace.yaml        # pnpm workspaces
-├── turbo.json                 # Turborepo task pipeline
-├── pyproject.toml             # Python workspace config
-├── openapi.json               # Generated — do not edit manually
-│
 ├── apps/
-│   ├── api/                   # FastAPI backend
-│   │   ├── AGENTS.md          # Backend agent instructions
-│   │   ├── pyproject.toml     # Python dependencies (uv)
-│   │   ├── alembic.ini        # Database migration config
-│   │   ├── alembic/
-│   │   │   └── versions/      # Migration files
-│   │   └── app/
-│   │       ├── main.py        # FastAPI app entry point
-│   │       ├── api/routes/    # HTTP route handlers
-│   │       ├── core/
-│   │       │   ├── config.py  # Settings via Pydantic
-│   │       │   ├── database.py# SQLAlchemy engine + session
-│   │       │   └── logging.py # Structured logger
-│   │       ├── models/        # SQLAlchemy ORM models
-│   │       ├── schemas/       # Pydantic request/response schemas
-│   │       ├── services/      # Business logic (incl. memory)
-│   │       └── scripts/       # CLI utilities
-│   │
-│   └── web/                   # Next.js frontend
-│       ├── AGENTS.md          # Frontend agent instructions
-│       ├── package.json
-│       └── src/app/           # App Router pages and layouts
-│
+│   ├── web/               Next.js 16 frontend
+│   └── api/               FastAPI backend
 ├── packages/
-│   ├── shared-types/          # Auto-generated TypeScript types
-│   │   └── src/
-│   │       ├── schemas.ts     # Zod schemas (manually maintained)
-│   │       └── index.ts       # Re-exports everything
-│   └── ui/                    # Shared React components
-│       └── src/
-│
-├── skills/                    # Executable skill scripts
-│   ├── SKILLS_REGISTRY.md     # Master index of all skills
-│   ├── init/                  # Template initialization
-│   ├── finish/                # Lint → test → commit → push
-│   ├── type-sync/             # Pydantic → OpenAPI → TypeScript
-│   ├── db-migrate/            # Alembic migration runner
-│   ├── dependency-add/        # Package installer (enforces pnpm/uv)
-│   ├── memory/                # Agent save/recall memory
-│   └── ...
-│
-└── docs/                      # Documentation
+│   ├── shared-types/      Auto-generated TypeScript types from OpenAPI
+│   └── ui/                Shared React components
+├── skills/                Bash automation scripts
+└── docs/                  Documentation
 ```
 
-## Shared Types Pipeline
+Managed with **pnpm workspaces** + **Turborepo** for parallel dev servers and cached builds.
 
-The most important architectural feature. Backend and frontend types stay in sync automatically:
+## Request Lifecycle
 
-```
-FastAPI Pydantic schemas
-         │
-         ▼
- openapi.json (generated)
-         │
-         ▼
- packages/shared-types
-         │
-         ▼
-TypeScript interfaces + Zod schemas
-         │
-         ▼
- apps/web imports @repo/shared-types
-```
+### Importing a Playlist
 
-You never write TypeScript interfaces for API responses. They are generated. Trigger the pipeline:
+1. User pastes a YouTube URL on the landing page and clicks "Preview Playlist"
+2. Frontend calls `GET /courses/preview?url=...` → shows title, channel, duration, video count
+3. User sets target days and clicks "Start Learning →"
+4. Frontend calls `POST /courses` with `{ playlist_url, target_days }`
+5. Backend:
+   - Extracts playlist ID from URL with regex
+   - Calls YouTube `/playlists` → title, channel, thumbnail
+   - Paginates YouTube `/playlistItems` → collects all video IDs
+   - Batch-fetches YouTube `/videos` (50 at a time) → ISO 8601 durations
+   - Parses `PT1H23M45S` → total seconds
+   - Saves one `Course` + N `Video` rows in a single DB transaction
+6. Frontend receives the new `CourseOut` and redirects to `/courses/{id}`
 
-```bash
-bash skills/type-sync/run.sh
-```
+### Tracking a Video as Watched
 
-## Multi-Agent Coordination
+1. User clicks a video row in `/courses/{id}`
+2. Frontend calls `PATCH /videos/{id}/watch` with `{ watched: true }`
+3. Backend updates `video.watched = True`, `video.watched_at = now()`
+4. Returns updated `VideoOut`; React state merges the change (no full refetch)
+5. Completion % and progress bar recalculate instantly on the client
 
-Multiple AI agents can work in this repo simultaneously via zone ownership:
+### Logging Daily Watch Time (Heatmap)
 
-| Zone | Path | What lives here |
-|------|------|-----------------|
-| Backend | `apps/api/` | FastAPI, Pydantic, SQLAlchemy, migrations |
-| Frontend | `apps/web/` | Next.js pages, components, hooks |
-| Shared Types | `packages/shared-types/` | Auto-generated — owned by `type-sync` |
-| UI Library | `packages/ui/` | Shared React components |
-| Skills | `skills/` | Skill scripts |
+1. User enters minutes in the sidebar and clicks "Log"
+2. Frontend calls `POST /logs` with `{ course_id, log_date, minutes_watched }`
+3. Backend **upserts**: if a log exists for `(course_id, log_date)` it adds the minutes; otherwise creates new
+4. Heatmap reads `GET /courses/{id}/heatmap` → `[{ date, minutes }, ...]`
+5. `Heatmap.tsx` renders a 52-week grid with pastel mint intensity levels
 
-### The Type Contract
+## Key Design Decisions
 
-`openapi.json` and `packages/shared-types/src/api-types.ts` are auto-generated. Do not edit manually.
+### Computed Fields, Not Stored
+`completion_pct`, `watched_videos`, `watched_seconds`, and `daily_goal_minutes` are computed at query time inside `_enrich()` in `courses.py`. They are never written to the DB — derived from the live video list. This keeps the model simple and always accurate.
 
-- Backend agent changes a Pydantic schema → runs `type-sync`
-- `type-sync` regenerates `openapi.json` and `api-types.ts`
-- Frontend agent imports from `@repo/shared-types` — always up to date
+### SQLite in Dev, PostgreSQL in Prod
+Zero-setup for local development. Switch the `DATABASE_URL` in `.env` to a Postgres URI for production. Alembic handles both dialects with the same migration files.
 
-### Commit Conventions
+### Client Components Only Where Needed
+App Router defaults to Server Components. Pages that need real-time state (`useEffect` + `useState`) opt into `"use client"`. The heatmap, video toggle, and log form are all client-side; static content stays server-rendered.
 
-Use [Conventional Commits](https://www.conventionalcommits.org/) scoped to zones:
+### No Authentication (MVP)
+Auth is intentionally out of scope. The natural extension is NextAuth.js + a `user_id` FK on `Course`, gated behind a session check in each route.
 
-```
-feat(api): add user authentication endpoint
-fix(web): correct pagination on search results
-chore(deps): bump fastapi to 0.116.0
-```
+### Heatmap as Accumulator
+`POST /logs` is additive — calling it multiple times on the same date accumulates minutes. This allows partial logging throughout the day without needing a separate "update" endpoint.

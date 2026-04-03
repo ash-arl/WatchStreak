@@ -1,154 +1,185 @@
 # Backend — FastAPI
 
-The backend is a **FastAPI** application using Python 3.11+.
+The backend is a **FastAPI** application using Python 3.11+, SQLAlchemy 2, and Alembic.
 
-## Key Libraries
+## Stack
 
-- `fastapi` — HTTP framework with automatic OpenAPI generation
-- `pydantic v2` — Data validation and settings management
-- `sqlalchemy 2.0` — ORM for relational data
-- `alembic` — Database schema migrations
-- `chromadb` — Local vector database for agent memory
-- `uvicorn` — ASGI server
+| Library | Purpose |
+|---------|---------|
+| `fastapi` | HTTP framework, auto OpenAPI docs |
+| `pydantic v2` | Request/response validation, settings |
+| `sqlalchemy 2.0` | ORM for relational data |
+| `alembic` | Schema migrations |
+| `httpx` | Async YouTube Data API v3 client |
+| `uvicorn` | ASGI server |
+| `chromadb` | Local vector DB (agent memory) |
+
+## Running the Backend
+
+```bash
+cd apps/api
+cp .env.example .env          # first time only — then add YOUTUBE_API_KEY
+uv sync                        # install dependencies
+uv run alembic upgrade head    # create/update tables
+uv run uvicorn app.main:app --reload
+```
+
+API: `http://localhost:8000`
+Swagger UI: `http://localhost:8000/docs`
+
+## Project Structure
+
+```
+apps/api/app/
+├── main.py               FastAPI app, CORS middleware, lifespan
+├── api/
+│   └── routes/
+│       ├── __init__.py   Registers all routers into api_router
+│       ├── courses.py    POST/GET /courses, GET /courses/{id}/heatmap
+│       ├── videos.py     PATCH /videos/{id}/watch
+│       ├── logs.py       POST/GET /logs
+│       ├── health.py     GET /health
+│       └── memory.py     Agent memory endpoints
+├── core/
+│   ├── config.py         Pydantic Settings — reads .env
+│   ├── database.py       SQLAlchemy engine + get_db dependency
+│   └── logging.py        Structured logger (JSON in prod)
+├── models/
+│   ├── example.py        Template example model
+│   └── watchstreak.py    Course, Video, DailyLog ORM models
+├── schemas/
+│   ├── health.py         HealthResponse
+│   ├── memory.py         Memory schemas
+│   └── watchstreak.py    CourseCreate/Out/Detail, VideoOut, DailyLogOut, etc.
+└── services/
+    ├── memory.py         ChromaDB agent memory
+    └── youtube.py        YouTube Data API v3 client
+```
+
+## Data Models
+
+### Course
+```python
+class Course(Base):
+    id: str                    # UUID
+    playlist_url: str
+    playlist_id: str           # YouTube playlist ID (e.g. PLxxxx)
+    title: str
+    channel: str
+    thumbnail_url: str
+    total_videos: int
+    total_duration_seconds: int
+    target_days: int
+    created_at: datetime
+```
+
+### Video
+```python
+class Video(Base):
+    id: str                    # UUID
+    course_id: str             # FK → courses.id
+    youtube_id: str            # YouTube video ID
+    title: str
+    duration_seconds: int
+    position: int              # Order in playlist
+    watched: bool
+    watched_at: datetime | None
+```
+
+### DailyLog
+```python
+class DailyLog(Base):
+    id: str                    # UUID
+    course_id: str             # FK → courses.id
+    log_date: date
+    minutes_watched: int       # Accumulated per day (upsert)
+    created_at: datetime
+```
+
+## API Endpoints
+
+### Courses
+
+```
+GET  /courses/preview?url=<youtube_url>
+     → PlaylistPreview (no DB write)
+
+POST /courses
+     Body: { playlist_url, target_days }
+     → CourseOut (201 Created)
+
+GET  /courses
+     → list[CourseOut] (with computed progress fields)
+
+GET  /courses/{id}
+     → CourseDetail (includes videos list)
+
+GET  /courses/{id}/heatmap
+     → list[HeatmapDay] { date, minutes }
+```
+
+### Videos
+
+```
+PATCH /videos/{id}/watch
+      Body: { watched: bool }
+      → VideoOut
+```
+
+### Logs
+
+```
+POST /logs
+     Body: { course_id, log_date, minutes_watched }
+     → DailyLogOut (upserts — adds minutes if date exists)
+
+GET  /logs?course_id={id}
+     → list[DailyLogOut]
+```
+
+## YouTube Service
+
+`app/services/youtube.py` handles all YouTube Data API v3 communication.
+
+**Key functions:**
+
+- `extract_playlist_id(url)` — Regex extracts playlist ID from any YouTube URL format
+- `_parse_duration(iso)` — Converts `PT1H23M45S` → total seconds
+- `fetch_playlist(playlist_id)` — Async function that:
+  1. Fetches playlist info (`/playlists`)
+  2. Paginates through all video IDs (`/playlistItems`, 50 per page)
+  3. Batch-fetches video details including durations (`/videos`, 50 per request)
+  4. Returns a `PlaylistMeta` TypedDict with everything needed
 
 ## Configuration
 
-All configuration lives in `app/core/config.py` using **Pydantic Settings**. It reads from environment variables and `.env` files automatically.
+All config is in `app/core/config.py` using Pydantic Settings. Access it anywhere:
 
 ```python
 from app.core.config import settings
 
-print(settings.DATABASE_URL)
-print(settings.MEMORY_DB_PATH)
-print(settings.DEBUG)
+settings.DATABASE_URL
+settings.YOUTUBE_API_KEY
+settings.CORS_ORIGINS
+settings.DEBUG
 ```
 
-Never hardcode config values. Never use `os.environ.get()` directly. Always go through `settings`.
+## Adding a New Endpoint
 
-## Structured Logging
+1. **Create schema** in `app/schemas/watchstreak.py`
+2. **Add to** `app/schemas/__init__.py`
+3. **Write route** in `app/api/routes/<name>.py`
+4. **Register** in `app/api/routes/__init__.py`
+5. If new model: **add to** `app/models/__init__.py`, then run migration
 
-The logging system produces human-readable colored output in development and machine-parseable JSON in production.
-
-```python
-from app.core.logging import get_logger
-
-logger = get_logger(__name__)
-
-# Basic
-logger.info("user signed up")
-
-# With structured fields (show up as JSON keys in production)
-logger.info("payment processed", user_id=42, amount_cents=1999, currency="USD")
-
-# Warnings and errors
-logger.warning("rate limit approaching", requests_remaining=5)
-logger.error("payment failed", order_id="abc", exc_info=True)
-```
-
-**Never use `print()`**. It bypasses log levels and structured output. Switch to JSON output in production by setting `LOG_JSON=true`.
-
-## Database Layer
-
-SQLAlchemy 2.0 with synchronous sessions.
-
-**Defining a model:**
-
-```python
-# apps/api/app/models/user.py
-from sqlalchemy import String
-from sqlalchemy.orm import Mapped, mapped_column
-from app.core.database import Base
-
-class User(Base):
-    __tablename__ = "users"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True)
-    name: Mapped[str] = mapped_column(String(100))
-```
-
-**Import it** in `app/models/__init__.py` so Alembic can discover it:
-
-```python
-from app.models.user import User  # noqa: F401
-```
-
-**Create the migration:**
+## Migrations
 
 ```bash
-bash skills/db-migrate/run.sh "add users table"
+# After changing any ORM model:
+cd apps/api
+uv run alembic revision --autogenerate -m "describe the change"
+uv run alembic upgrade head
+
+# Roll back:
+uv run alembic downgrade -1
 ```
-
-**Using the DB in routes:**
-
-```python
-from sqlalchemy.orm import Session
-from fastapi import Depends
-from app.core.database import get_db
-
-@router.get("/users")
-def list_users(db: Session = Depends(get_db)):
-    return db.query(User).all()
-```
-
-## Adding an Endpoint
-
-**1. Define Pydantic schemas** in `app/schemas/`:
-
-```python
-# app/schemas/user.py
-from pydantic import BaseModel
-
-class UserCreateRequest(BaseModel):
-    email: str
-    name: str
-
-class UserResponse(BaseModel):
-    id: int
-    email: str
-    name: str
-```
-
-**2. Add to** `app/schemas/__init__.py`:
-
-```python
-from app.schemas.user import UserCreateRequest, UserResponse
-__all__ = [..., "UserCreateRequest", "UserResponse"]
-```
-
-**3. Write the route** in `app/api/routes/users.py`:
-
-```python
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
-from app.core.database import get_db
-from app.core.logging import get_logger
-from app.schemas.user import UserCreateRequest, UserResponse
-from app.models.user import User
-
-logger = get_logger(__name__)
-router = APIRouter(prefix="/users")
-
-@router.post("/", response_model=UserResponse)
-def create_user(req: UserCreateRequest, db: Session = Depends(get_db)):
-    user = User(email=req.email, name=req.name)
-    db.add(user)
-    db.commit()
-    logger.info("user created", email=req.email)
-    return user
-```
-
-**4. Register the router** in `app/api/routes/__init__.py`:
-
-```python
-from app.api.routes import health, memory, users
-api_router.include_router(users.router, tags=["users"])
-```
-
-**5. Sync the types:**
-
-```bash
-bash skills/type-sync/run.sh
-```
-
-The frontend now has TypeScript types for `UserCreateRequest` and `UserResponse`.
