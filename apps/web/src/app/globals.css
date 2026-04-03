@@ -1,0 +1,113 @@
+@import "tailwindcss";
+
+@theme {
+  /* ── Surfaces ─────────────────────────────────────────── */
+  --color-background:                 #f8f9fa;
+  --color-surface:                    #f8f9fa;
+  --color-surface-bright:             #f8f9fa;
+  --color-surface-dim:                #d5dbdd;
+  --color-surface-tint:               #346482;
+  --color-surface-variant:            #dee3e6;
+  --color-surface-container-lowest:   #ffffff;
+  --color-surface-container-low:      #f1f4f5;
+  --color-surface-container:          #ebeef0;
+  --color-surface-container-high:     #e5e9eb;
+  --color-surface-container-highest:  #dee3e6;
+
+  /* ── Primary (Blue Focus) ─────────────────────────────── */
+  --color-primary:                    #346482;
+  --color-primary-dim:                #265875;
+  --color-primary-fixed:              #abdafd;
+  --color-primary-fixed-dim:          #9eccef;
+  --color-primary-container:          #abdafd;
+  --color-on-primary:                 #f5f9ff;
+  --color-on-primary-container:       #1a4e6b;
+  --color-on-primary-fixed:           #003a55;
+  --color-on-primary-fixed-variant:   #265775;
+  --color-inverse-primary:            #abdafd;
+
+  /* ── Secondary (Mint Growth) ──────────────────────────── */
+  --color-secondary:                  #4a6641;
+  --color-secondary-dim:              #3f5a36;
+  --color-secondary-fixed:            #cbecbc;
+  --color-secondary-fixed-dim:        #bddeaf;
+  --color-secondary-container:        #cbecbc;
+  --color-on-secondary:               #ebffdf;
+  --color-on-secondary-container:     #3d5934;
+  --color-on-secondary-fixed:         #2b4624;
+  --color-on-secondary-fixed-variant: #47633d;
+
+  /* ── Tertiary (Lavender Insight) ──────────────────────── */
+  --color-tertiary:                   #69558e;
+  --color-tertiary-dim:               #5c4981;
+  --color-tertiary-fixed:             #d6beff;
+  --color-tertiary-fixed-dim:         #c8b1f0;
+  --color-tertiary-container:         #d6beff;
+  --color-on-tertiary:                #fef7ff;
+  --color-on-tertiary-container:      #4b386e;
+  --color-on-tertiary-fixed:          #362459;
+  --color-on-tertiary-fixed-variant:  #544178;
+
+  /* ── Neutrals & Outline ───────────────────────────────── */
+  --color-on-background:              #2d3335;
+  --color-on-surface:                 #2d3335;
+  --color-on-surface-variant:         #5a6062;
+  --color-outline:                    #767c7e;
+  --color-outline-variant:            #adb3b5;
+  --color-inverse-surface:            #0c0f10;
+  --color-inverse-on-surface:         #9b9d9e;
+
+  /* ── Error ────────────────────────────────────────────── */
+  --color-error:                      #a83836;
+  --color-error-dim:                  #67040d;
+  --color-error-container:            #fa746f;
+  --color-on-error:                   #fff7f6;
+  --color-on-error-container:         #6e0a12;
+
+  /* ── Typography ───────────────────────────────────────── */
+  --font-headline: "Manrope", sans-serif;
+  --font-body:     "Inter", sans-serif;
+  --font-label:    "Inter", sans-serif;
+
+  /* ── Border Radius ────────────────────────────────────── */
+  --radius-DEFAULT: 0.25rem;
+  --radius-lg:      0.5rem;
+  --radius-xl:      1.5rem;
+  --radius-full:    9999px;
+}
+
+/* ── Global base ──────────────────────────────────────────── */
+body {
+  font-family: "Inter", sans-serif;
+  background-color: #f8f9fa;
+  color: #2d3335;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: "Manrope", sans-serif;
+}
+
+/* ── Glassmorphism nav ────────────────────────────────────── */
+.glass-header {
+  background: rgba(248, 249, 250, 0.72);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+/* ── Ghost border for inputs ──────────────────────────────── */
+.ghost-border {
+  outline: 1px solid rgba(173, 179, 181, 0.15);
+}
+
+/* ── Heatmap grid ─────────────────────────────────────────── */
+.heatmap-grid {
+  display: grid;
+  grid-template-columns: repeat(53, 1fr);
+  gap: 3px;
+}
+
+/* ── Subtle shadow ────────────────────────────────────────── */
+.shadow-ambient {
+  box-shadow: 0 32px 64px rgba(45, 51, 53, 0.05);
+}
